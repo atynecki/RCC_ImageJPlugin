@@ -1,128 +1,105 @@
+import java.awt.Frame;
+import java.awt.TextField;
+
 import ij.*;
 import ij.process.*;
+import ij.util.Tools;
 import ij.gui.*;
-import ij.io.SaveDialog;
-import ij.plugin.frame.*;
-import ij.plugin.ImageCalculator;
-import ij.plugin.Duplicator;
+import ij.measure.Calibration;
+import ij.measure.ResultsTable;
+import ij.plugin.filter.PlugInFilter;
 
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-
-public class RCC extends PlugInFrame implements ActionListener {	
-	private Panel panel;
-	private static Frame instance;
-	private ImagePlus image = new ImagePlus();
-	public static ImagePlus image1 = new ImagePlus();
-	public static ImagePlus image2 = new ImagePlus();
+public class RCC implements PlugInFilter {	
 	
-	private static int frame_width = 400;
-	private static int frame_height = 400;
+	private String arg;
+	private ImagePlus image;
+	
+	private static int sigma;
+	private static String size;
+	private static String circularity;
+	
+	private static ResultsTable resultsTable;
+	private static int cell_number;
+	private TextField resultTextField;
+	
+	private Frame resultFrame;
 	
 	public RCC() {
-		super("Red cell counter");
-		
-		if (instance!=null) {
-			instance.toFront();
-			return;
-		}
-		instance = this;
-		addKeyListener(IJ.getInstance());
-		
-		/** SET VIEW */
-		this.setSize((int) frame_width,(int) frame_height);
-		
-		setLayout(new FlowLayout());
-		Panel buttonPanel = new Panel();
-		buttonPanel.setLayout(new GridLayout(2, 1, 5, 5));
-		buttonPanel.add(addButton("Analyze"));
-		buttonPanel.add(addButton("Save result"));
-		add(buttonPanel);
-		
-		Panel parametersPanel = new Panel();
-		parametersPanel.setLayout(new GridLayout(2, 1, 5, 5));
-		parametersPanel.add(addParameterField("parameter1", 200, 15));
-		parametersPanel.add(addParameterField("parameter2", 200, 15));
-		add(parametersPanel);
-		
-		/** GET ACTIVE IMAGE */
-		image = IJ.getImage();
-				
-		GUI.center(this);
-		setVisible(true);
+		arg = new String();
+		image = new ImagePlus();
+		resultFrame = new Frame();
+		sigma = 1;
+		size = "0-Infinity";
+		circularity = "0.00-1.00";
 	}
 	
-	Button addButton(String label) {
-		Button button = new Button(label);
-		button.addActionListener(this);
-		button.addKeyListener(IJ.getInstance());
+	public int setup(String arg, ImagePlus imp) {
+		this.arg = arg;
+		this.image = imp;
+		IJ.register(RCC.class);
+		if (imp==null) {
+			IJ.noImage();
+			return DONE;
+		}
 		
-		return button;
+		if (!showDialog())
+			return DONE;
+		
+		int baseFlags = DOES_ALL+NO_CHANGES+NO_UNDO;
+		int flags = IJ.setupDialog(imp, baseFlags);
+	
+		return flags;
+	
 	}
 	
-	Panel addParameterField(String label, double defaultValue, int digits) {
-		Panel parameterFieldPanel = new Panel();
-		Label labelName = new Label(label);
-		TextField textField = new TextField(digits);
+	public void run(ImageProcessor ip) {
+		image.unlock();
+		IJ.run(image, "8-bit", "");
 		
-		parameterFieldPanel.setLayout(new GridBagLayout());
-		GridBagConstraints d = new GridBagConstraints();
-		d.insets = new Insets(5, 10, 5, 5);
-		d.gridx = 0;
-		d.gridy = 0;
-		d.ipady = 15;
-		parameterFieldPanel.add(labelName, d);
-		d.gridx = 1;
-		d.gridy = 0;
-		d.ipady = 15;
-		parameterFieldPanel.add(textField, d);
-		textField.setText(String.valueOf(defaultValue));
+		for (int i = 0; i < sigma; i++)
+		{ 
+		  IJ.run(image, "Gaussian Blur...", "Sigma = 1"); 
+		}
+			
+		IJ.run(image, "Make Binary", "");
+		IJ.run(image, "Fill Holes", "");
+		IJ.run(image, "Watershed", "");
+		//String analyze_parameter = "size="+size+" "+"circularity="+circularity+" show=[Overlay Outlines] display record slice";
+		//IJ.run(image, "Analyze Particles...", analyze_parameter);
+		IJ.run(image, "Analyze Particles...", "size=0-infinity circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
 		
-		return parameterFieldPanel;
+		image.updateAndDraw();
+		resultsTable = ResultsTable.getResultsTable();
+		cell_number = resultsTable.getCounter();
+		
+		MessageDialog result_msg = new MessageDialog(resultFrame, "Result", "Red cell number: \n Red cell mean value:");
 	}
 
-	public void actionPerformed(ActionEvent e) {
-		String actionCommand = e.getActionCommand();
-		Object actionSource = e.getSource();
+	public boolean showDialog() {
+		GenericDialog gd = new GenericDialog("Red cell counter");
+	
+		gd.addNumericField("Sigma", sigma, 0, 2, null);
+		gd.addStringField("Size pixel^2:", size, 12);
+		gd.addStringField("Circularity:", circularity, 12);
 		
-		if(actionCommand.equals("Analyze")){
-			ImageProcessing.ImageProcess(image);
-							
+		gd.showDialog();
+		if (gd.wasCanceled())
+			return false;
+		
+		gd.setSmartRecording(true);
+		sigma = (int)(gd.getNextNumber());
+		
+		gd.setSmartRecording(true);
+		size = gd.getNextString(); // min-max size
+		
+		gd.setSmartRecording(true);
+		circularity = gd.getNextString(); // min-max circularity
+		
+		if (gd.invalidNumber()) {
+			IJ.error("Bins invalid.");
+			return false;
 		}
-		else if(actionCommand.equals("Save result")) {
-			SaveDialog saveImage = new SaveDialog("Save image...", "image", ".jpg");
-			
-			this.close();
-		}
+		
+		return true;
 	}
-
-	private static class ImageProcessing
-	{
-		public ImageProcessing() {
-			}
-		
-		public static ImagePlus ImageProcess(ImagePlus img) {
-						
-			IJ.run(img, "8-bit", "");
-									
-			int sigma = 3; // do pobrania z aplikacji, wartosc do Gaussian Blur, jak bardzo ma byæ rozmyte
-			
-			for (int i = 0; i < sigma; i++)
-			{ 
-			  IJ.run(img, "Gaussian Blur...", "Sigma = 1"); 
-			}
-				
-				IJ.run(img, "Make Binary", "");
-				IJ.run(img, "Fill Holes", "");
-				IJ.run(img, "Watershed", "");
-				IJ.run(img, "Analyze Particles...", "size=0-infinity circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
-				img.show();
-					
-			
-			
-			return img;
-		}
-	}//ImageProcessing inner class
 }
-
