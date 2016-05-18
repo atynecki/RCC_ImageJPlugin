@@ -1,5 +1,7 @@
+import java.awt.Checkbox;
 import java.awt.Frame;
 import java.awt.TextField;
+import java.util.Vector;
 
 import ij.*;
 import ij.process.*;
@@ -18,11 +20,21 @@ public class RCC implements PlugInFilter {
 	private static String size;
 	private static String circularity;
 	
+	private TextField size_text;
+	private TextField circularity_text;
+	
 	private static ResultsTable resultsTable;
-	private static int cell_number;
+	private static int cell_number = 0;
 	private TextField resultTextField;
 	
 	private Frame resultFrame;
+	
+	public static boolean WBC = false;
+	public static boolean RBC = false;
+	public static boolean PLT = false;
+	
+	/** Display image containing outlines of measured particles. */
+	public static final int SHOW_OUTLINES = 4;
 	
 	public RCC() {
 		arg = new String();
@@ -64,9 +76,20 @@ public class RCC implements PlugInFilter {
 		IJ.run(image, "Make Binary", "");
 		IJ.run(image, "Fill Holes", "");
 		IJ.run(image, "Watershed", "");
-		//String analyze_parameter = "size="+size+" "+"circularity="+circularity+" show=[Overlay Outlines] display record slice";
-		//IJ.run(image, "Analyze Particles...", analyze_parameter);
-		IJ.run(image, "Analyze Particles...", "size=0-infinity circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
+		if(WBC)
+		{
+			IJ.run(image, "Analyze Particles...", "size=0-1000 circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
+		}
+		else if (RBC)
+		{
+			IJ.run(image, "Analyze Particles...", "size=1000-2000 circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
+	
+		}
+		else if (PLT)
+		{
+			IJ.run(image, "Analyze Particles...", "size=2000-3000 circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
+	
+		}
 		
 		image.updateAndDraw();
 		resultsTable = ResultsTable.getResultsTable();
@@ -82,6 +105,18 @@ public class RCC implements PlugInFilter {
 		gd.addStringField("Size pixel^2:", size, 12);
 		gd.addStringField("Circularity:", circularity, 12);
 		
+		size_text = (TextField)gd.getComponent(3);
+		size_text.setEditable(false);
+		
+		circularity_text = (TextField)gd.getComponent(5);
+		circularity_text.setEditable(false);
+		
+		String[] labels = new String[3];
+		labels[0]="White Blood Cells (WBC)";
+		labels[1]="Red Blood Cells (RBC)";
+		labels[2]="Platelets (PLT)";
+		gd.addRadioButtonGroup("Cells", labels, 3, 1, null);
+		
 		gd.showDialog();
 		if (gd.wasCanceled())
 			return false;
@@ -89,16 +124,23 @@ public class RCC implements PlugInFilter {
 		gd.setSmartRecording(true);
 		sigma = (int)(gd.getNextNumber());
 		
-		gd.setSmartRecording(true);
-		size = gd.getNextString(); // min-max size
-		
-		gd.setSmartRecording(true);
-		circularity = gd.getNextString(); // min-max circularity
-		
 		if (gd.invalidNumber()) {
 			IJ.error("Bins invalid.");
 			return false;
 		}
+		
+		String option = (String)gd.getNextRadioButton();
+		if(option.equals(labels[0]))
+		{
+			size_text.setText("0-1000");
+			circularity_text.setText("0.10-1.00");
+			WBC = true;
+		}
+		else WBC = false;
+		if(option.equals(labels[1]))
+			RBC = true; else RBC = false;
+		if(option.equals(labels[2]))
+			PLT = true; else PLT = false;
 		
 		return true;
 	}
