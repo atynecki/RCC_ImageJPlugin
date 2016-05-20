@@ -1,17 +1,19 @@
 import java.awt.Checkbox;
+import java.awt.Color;
+import java.awt.Font;
 import java.awt.Frame;
+import java.awt.Panel;
 import java.awt.TextField;
-import java.util.Vector;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 
 import ij.*;
 import ij.process.*;
-import ij.util.Tools;
 import ij.gui.*;
-import ij.measure.Calibration;
 import ij.measure.ResultsTable;
 import ij.plugin.filter.PlugInFilter;
 
-public class RCC implements PlugInFilter {	
+public class RCC implements PlugInFilter {
 	
 	private String arg;
 	private ImagePlus image;
@@ -25,16 +27,14 @@ public class RCC implements PlugInFilter {
 	
 	private static ResultsTable resultsTable;
 	private static int cell_number = 0;
-	private TextField resultTextField;
+	private static int mean_cell_size = 0;
 	
 	private Frame resultFrame;
 	
 	public static boolean WBC = false;
 	public static boolean RBC = false;
 	public static boolean PLT = false;
-	
-	/** Display image containing outlines of measured particles. */
-	public static final int SHOW_OUTLINES = 4;
+	public static boolean ALL = false;
 	
 	public RCC() {
 		arg = new String();
@@ -83,21 +83,32 @@ public class RCC implements PlugInFilter {
 		else if (RBC)
 		{
 			IJ.run(image, "Analyze Particles...", "size=1000-2000 circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
-	
 		}
 		else if (PLT)
 		{
 			IJ.run(image, "Analyze Particles...", "size=2000-3000 circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
-	
+		}
+		else if (ALL)
+		{
+			IJ.run(image, "Analyze Particles...", "size=0-infinity circularity=0.00-1.00 show=[Overlay Outlines] display record slice");
 		}
 		
 		image.updateAndDraw();
 		resultsTable = ResultsTable.getResultsTable();
 		cell_number = resultsTable.getCounter();
+		mean_cell_size = calculteMeanCellSize(resultsTable);
 		
-		MessageDialog result_msg = new MessageDialog(resultFrame, "Result", "Red cell number: \n Red cell mean value:");
+		GenericDialog gd = new GenericDialog("Result");
+		gd.addMessage("Cell number:");
+		gd.addMessage(String.valueOf(cell_number));
+		gd.addMessage("Mean cells size:");
+		gd.addMessage(String.valueOf(mean_cell_size));
+		gd.showDialog();
+		if (gd.wasCanceled())
+			return;
+		
 	}
-
+	
 	public boolean showDialog() {
 		GenericDialog gd = new GenericDialog("Red cell counter");
 	
@@ -111,11 +122,62 @@ public class RCC implements PlugInFilter {
 		circularity_text = (TextField)gd.getComponent(5);
 		circularity_text.setEditable(false);
 		
-		String[] labels = new String[3];
+		String[] labels = new String[4];
 		labels[0]="White Blood Cells (WBC)";
 		labels[1]="Red Blood Cells (RBC)";
 		labels[2]="Platelets (PLT)";
-		gd.addRadioButtonGroup("Cells", labels, 3, 1, null);
+		labels[3]="All";
+		gd.addRadioButtonGroup("Cells", labels, 4, 1, null);
+		
+		Panel box = (Panel) gd.getComponent(7);
+		Checkbox wbc = (Checkbox) box.getComponent(0);
+		Checkbox rbc = (Checkbox) box.getComponent(1);
+		Checkbox plt = (Checkbox) box.getComponent(2);
+		Checkbox all = (Checkbox) box.getComponent(3);
+		
+		wbc.addItemListener(new ItemListener() {
+			
+			public void itemStateChanged(ItemEvent e) {
+				if(e.getStateChange()==1)
+				{
+					size_text.setText("0-1000");
+					circularity_text.setText("0.02-0.03");
+				}
+			}
+		});
+		
+		rbc.addItemListener(new ItemListener() {
+			
+			public void itemStateChanged(ItemEvent e) {
+				if(e.getStateChange()==1)
+				{
+					size_text.setText("1000-2000");
+					circularity_text.setText("0.04-0.5");
+				}
+			}
+		});
+	
+		plt.addItemListener(new ItemListener() {
+		
+			public void itemStateChanged(ItemEvent e) {
+				if(e.getStateChange()==1)
+				{
+					size_text.setText("2000-3000");
+					circularity_text.setText("0.5-0.9");
+				}
+			}
+		});
+		
+		all.addItemListener(new ItemListener() {
+			
+			public void itemStateChanged(ItemEvent e) {
+				if(e.getStateChange()==1)
+				{
+					size_text.setText(size);
+					circularity_text.setText(circularity);
+				}
+			}
+		});
 		
 		gd.showDialog();
 		if (gd.wasCanceled())
@@ -131,17 +193,25 @@ public class RCC implements PlugInFilter {
 		
 		String option = (String)gd.getNextRadioButton();
 		if(option.equals(labels[0]))
-		{
-			size_text.setText("0-1000");
-			circularity_text.setText("0.10-1.00");
-			WBC = true;
-		}
-		else WBC = false;
+			WBC = true; else WBC = false;
 		if(option.equals(labels[1]))
 			RBC = true; else RBC = false;
 		if(option.equals(labels[2]))
 			PLT = true; else PLT = false;
+		if(option.equals(labels[3]))
+			ALL= true; else ALL = false;
 		
 		return true;
+	}
+	
+	private int calculteMeanCellSize(ResultsTable tab)
+	{
+		float area_tab [] = tab.getColumn(0);
+		double sum=0;
+		
+		for (float f : area_tab) {
+			sum+=f;
+		}
+		return (int)sum/area_tab.length;
 	}
 }
